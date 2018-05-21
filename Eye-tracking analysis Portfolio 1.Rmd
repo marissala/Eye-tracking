@@ -1,0 +1,365 @@
+---
+title: "Eye tracking data analysis"
+author: "Maris Sala"
+date: "February 18, 2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Visual search and Social engagement condition analysis
+
+Set things up
+```{r cars}
+# Load packages
+pacman::p_load(readr,groupdata2,ggplot2,tidyverse,caret,cowplot)
+pacman::p_load(Metrics,readr,groupdata2,ggplot2,tidyverse,lmerTest, caret,MuMIn,car,dplyr)
+
+# Data with Visual search and social engagement
+Fix = read.csv('../2018Eyetracking/FixationsV2.csv')
+Sac = read.csv('../2018Eyetracking/SaccadesV2.csv')
+#Samples = read.csv('../2018Eyetracking/SamplesV2.csv')
+
+#Scale everything
+preObj <- preProcess(Fix[, c(-1, -3, -4,-5, -7, -8)], method=c("center", "scale"))
+Fix <- predict(preObj, Fix)
+
+# Make one dataframe for SocialEngagement and one for VisualSearch
+sFix = subset(Fix, Task == "SocialEngagement", na.rm=T)
+vFix = subset(Fix, Task == "VisualSearch")
+sSac = subset(Sac, Task == "SocialEngagement", na.rm=T)
+vSac = subset(Sac, Task == "VisualSearch")
+
+# Get rid of irrelevant columns
+drops <- c("SearchOrder","SearchType")
+sFix = sFix[ , !(names(sFix) %in% drops)]
+sSac = sSac[ , !(names(sSac) %in% drops)]
+
+drops <- c("Directionality","Ostension", "ActorGender")
+vFix = vFix[ , !(names(vFix) %in% drops)]
+vSac = vSac[ , !(names(vSac) %in% drops)]
+
+# Remove irrelevant rows from Samples (saccades and blinks)
+Samples = Samples[!(Samples$Saccade==1 | Samples$Blink==1),]
+## Drop those columns
+Samples$Saccade = NULL
+Samples$Blink = NULL
+## Make one for socialengagement and visualsearch
+vSamples = subset(Samples, Task == "VisualSearch")
+sSamples = subset(Samples, Task == "SocialEngagement", na.rm=T)
+## Remove columns
+drops <- c("SearchOrder","SearchType")
+sSamples = sSamples[ , !(names(sSamples) %in% drops)]
+drops <- c("Directionality","Ostension", "ActorGender")
+vSamples = vSamples[ , !(names(vSamples) %in% drops)]
+
+# Omit NA's
+sFix = na.omit(sFix)
+vFix = na.omit(vFix)
+sSac = na.omit(sSac)
+vSac = na.omit(vSac)
+vSamples = na.omit(vSamples)
+sSamples = na.omit(sSamples)
+```
+
+Plot some data to see what we are up against
+```{r}
+# Social first
+
+# Try changing timestamp into numbers
+ggplot(social, aes(Ostension, PupilSize)) +
+  geom_boxplot() +
+  facet_grid(.~ Directionality)
+
+# What about gender
+ggplot(sFix, aes(ParticipantGender, PupilSize)) +
+  geom_boxplot() +
+  facet_grid(.~ ActorGender)
+## female pupils seem to be larger anyways in the data
+
+# One participant has a longer trialtime for one condition
+max(subset(social, ParticipantID == "2_1_f")$TrialTime) ## max trial time is 6405
+# Same plot as before but set max for x axis as 6405
+ggplot(social, aes(TrialTime, PupilSize, color = ParticipantID)) +
+  geom_smooth() +
+  xlim(0,6450) +
+  facet_grid(.~ ActorGender)
+
+# Now plot the same for generally
+ggplot(social, aes(TrialTime, PupilSize, color = ParticipantGender)) +
+  geom_smooth() +
+  xlim(0,6450) +
+  #facet_grid(.~ ActorGender) +
+  facet_wrap(~ Ostension + Directionality)
+
+# Now based on the actor's gender + ostension
+ggplot(social, aes(TrialTime, PupilSize, color = ParticipantGender)) +
+  geom_smooth() +
+  xlim(0,6450) +
+  facet_wrap(~ ActorGender + Ostension)
+## seems like 
+```
+
+
+
+```{r}
+# Same for visual search now!
+# Distribution of speed
+ggplot(visual, aes(MeanVelocityX)) +
+  geom_histogram()
+# Split by stimulus
+ggplot(visual, aes(MeanVelocityX)) +
+  geom_histogram() +
+  facet_wrap(~Stimulus)
+
+# Speed on Y axis split by stimulus
+ggplot(visual, aes(MeanVelocityY)) +
+  geom_histogram() +
+  facet_wrap(~Stimulus)
+
+## All seem normal
+
+
+# Density plot in visual search
+pacman::p_load(jpeg,grid)
+
+jet.colors <- colorRampPalette(c("#00007F", "blue", "#007FFF", "cyan", "#7FFF7F", "yellow", "#FF7F00", "red", "#7F0000"))
+img <- readJPEG('../2018Eyetracking/eyetrackingscripts/foraging/ng073ws.jpg')
+g <- rasterGrob(img, interpolate=TRUE) #this makes image readable for R and this gets the picture to show
+
+#density
+search = ggplot(subset(vFix, SearchType=='Search' & Stimulus == "ng073ws.jpg"), aes(x = PositionX, y = 1081-PositionY)) +
+  xlim(0,1920) +
+  ylim(0,1080) +
+  annotation_custom(g, xmin=-Inf, xmax=Inf, ymin=-0, ymax=1080) + #xmin=-Inf, xmax=Inf, ymin=-Inf, ymax=Inf) + this puts the image on the graph
+  stat_density2d(geom="raster", aes(fill=..density.., alpha=sqrt(sqrt(..density..))), contour=F, n=1000) + #density map, "raster" makes the plot smoother, not so boxy, alpha is the density of the plot - you want it to be transparent and where more datapoints more dense so is the color
+  scale_alpha(range = c(0.1, 0.6)) + #scales the density of the colors
+  scale_fill_gradientn(colours = jet.colors(10), trans="sqrt") + #gives 10 colors, says they should be distributed to dif densities, trans is transdoing them
+    #theme with white background
+  theme_bw() +
+
+  #eliminates background, gridlines, chart border, axis numbers
+  theme(
+    plot.background = element_blank()
+   ,panel.grid.major = element_blank()
+   ,panel.grid.minor = element_blank(),
+   panel.border = element_blank(),
+   axis.title.x=element_blank(),
+   axis.text.x=element_blank(),
+   axis.ticks.x=element_blank(),
+   axis.title.y=element_blank(),
+   axis.text.y=element_blank(),
+   axis.ticks.y=element_blank()
+  ) +
+  theme(legend.position="none") #remove legend
+search
+
+# Counting density plot
+jet.colors <- colorRampPalette(c("#00007F", "blue", "#007FFF", "cyan", "#7FFF7F", "yellow", "#FF7F00", "red", "#7F0000"))
+img <- readJPEG('../2018Eyetracking/eyetrackingscripts/foraging/ng073ws.jpg')
+g <- rasterGrob(img, interpolate=TRUE) #this makes image readable for R and this gets the picture to show
+
+count = ggplot(subset(vFix, SearchType == "Count" & Stimulus == "ng073ws.jpg"), aes(x = PositionX, y = 1080-PositionY)) + #1081 bcs otherwise the y axis is turned upside down
+  xlim(0,1920) +
+  ylim(0,1080) +
+  annotation_custom(g, xmin=-Inf, xmax=Inf, ymin=-0, ymax=1080) + #xmin=-Inf, xmax=Inf, ymin=-Inf, ymax=Inf) + this puts the image on the graph
+  stat_density2d(geom="raster", aes(fill=..density.., alpha=sqrt(sqrt(..density..))), contour=F, n=1000) + #density map, "raster" makes the plot smoother, not so boxy, alpha is the density of the plot - you want it to be transparent and where more datapoints more dense so is the color
+  scale_alpha(range = c(0.1, 0.6)) + #scales the density of the colors
+  scale_fill_gradientn(colours = jet.colors(10), trans="sqrt") + #gives 10 colors, says they should be distributed to dif densities, trans is transdoing them
+  #theme with white background
+  theme_bw() +
+
+  #eliminates background, gridlines, chart border, axis numbers
+  theme(
+    plot.background = element_blank()
+   ,panel.grid.major = element_blank()
+   ,panel.grid.minor = element_blank(),
+   panel.border = element_blank(),
+   axis.title.x=element_blank(),
+   axis.text.x=element_blank(),
+   axis.ticks.x=element_blank(),
+   axis.title.y=element_blank(),
+   axis.text.y=element_blank(),
+   axis.ticks.y=element_blank()
+  )+
+  theme(legend.position="none") #remove legend
+count
+```
+
+Scanpath plots
+```{r}
+# For visual search
+img <- readJPEG('../2018Eyetracking/eyetrackingscripts/foraging/ng073ws.jpg')
+g <- rasterGrob(img, interpolate=TRUE) #this makes image readable for R and this gets the picture to show
+
+x = subset(vFix, ParticipantID == "3_1_f1" & SearchType=='Search' & Stimulus == "ng073ws.jpg", select = Trial:SearchType)
+x = x[order(x$Fixation),]
+
+y = subset(vFix, Stimulus == "ng073ws.jpg" & SearchType == "Count", select = c(ParticipantID, Stimulus))
+remove(y)
+
+scan_search = ggplot(x, aes(x = PositionX, y = 1080-PositionY, label = Fixation)) +
+  xlim(0,1920) +
+  ylim(0,1080) +
+  annotation_custom(g, xmin=-Inf, xmax=Inf, ymin=-0, ymax=1080) + #xmin=-Inf, xmax=Inf, ymin=-Inf, ymax=Inf) + this puts the image on the graph
+  geom_point(size = x$Duration/100, alpha = 0.5, color = "red") + #size = x$Duration/100  - divide bcs uhm // size = x$Duration/sqrt(x$Duration) + color = "magneta"// x$Duration/mean(x$Duration)
+  geom_path(size = 1, alpha = 0.3) +
+  geom_text(aes(label=Fixation,size= 5)) +
+  #theme with white background
+  theme_bw() +
+
+  #eliminates background, gridlines, chart border, axis numbers
+  theme(
+    plot.background = element_blank(),
+   panel.grid.major = element_blank(),
+   panel.grid.minor = element_blank(),
+   panel.border = element_blank(),
+   axis.title.x=element_blank(),
+   axis.text.x=element_blank(),
+   axis.ticks.x=element_blank(),
+   axis.title.y=element_blank(),
+   axis.text.y=element_blank(),
+   axis.ticks.y=element_blank()
+  )+
+  theme(legend.position="none") #remove legend
+
+# For counting
+x = subset(vFix, ParticipantID == "2_2_f2" & SearchType=='Count' & Stimulus == "ng073ws.jpg", select = Trial:SearchType)
+x = x[order(x$Fixation),]
+
+scan_count = ggplot(x, aes(x = PositionX, y = 1080-PositionY, label = Fixation)) +
+  xlim(0,1920) +
+  ylim(0,1080) +
+  annotation_custom(g, xmin=-Inf, xmax=Inf, ymin=-0, ymax=1080) + #xmin=-Inf, xmax=Inf, ymin=-Inf, ymax=Inf) + this puts the image on the graph
+  geom_point(size = x$Duration/100, alpha = 0.5, color = "red") + #size = x$Duration/100  - divide bcs uhm // size = x$Duration/sqrt(x$Duration) + color = "magneta"// x$Duration/mean(x$Duration)
+  geom_path(size = 1, alpha = 0.3) +
+  geom_text(aes(label=Fixation,size= 5)) +
+  #theme with white background
+  theme_bw() +
+
+  #eliminates background, gridlines, chart border, axis numbers
+  theme(
+    plot.background = element_blank(),
+   panel.grid.major = element_blank(),
+   panel.grid.minor = element_blank(),
+   panel.border = element_blank(),
+   axis.title.x=element_blank(),
+   axis.text.x=element_blank(),
+   axis.ticks.x=element_blank(),
+   axis.title.y=element_blank(),
+   axis.text.y=element_blank(),
+   axis.ticks.y=element_blank()
+  ) +
+  theme(legend.position="none") #remove legend
+scan_search
+scan_count
+
+#pacman::p_load(gridExtra)
+#grid.arrange(search, scan_search) 
+#grid.arrange(count, scan_count)
+```
+
+
+
+Make the models via cross-validation
+```{r}
+data = vFix
+data$fold_id = data$ParticipantID
+data$id = as.numeric(data$fold_id)
+data$id = as.factor(data$id)
+data$id = as.character(data$id)
+data$id = as.numeric(data$id)
+#data$id = as.factor(data$id)
+
+# Scale duration!
+data$Duration = scale(data$Duration)
+# And fixation
+data$Fixation = scale(data$Fixation)
+# Only select columns you need in the models
+#data$fold_id = as.factor(data$fold_id)
+data = subset(data, select = c(Trial, ParticipantID, Fixation, Duration, SearchType, fold_id, id))
+data = subset(data, id == "1" | id == "2")
+
+# List of all the models that will be tested
+goodmodels = list("Duration ~ SearchType*Fixation + Trial + (1+SearchType*Fixation*Trial|ParticipantID)")
+               #"Duration ~ SearchType*Saccade * Trial + (1+SearchType*Trial|ParticipantID)")
+               #"TimeStamp ~ SearchType + Trial + (1+SearchType*Trial|ParticipantID)")
+               #"Duration ~ SearchType + Trial + (1+SearchType*Trial|ParticipantID), family = gaussian(link=log)",
+               #"Duration ~ SearchType * Trial + (1+SearchType*Trial|ParticipantID), family = gaussian(link=log)"
+#)
+# To save results in a dataframe
+BestModel = as.data.frame(NULL)
+
+# Loop for ALL MODELS
+for (model in goodmodels){
+  
+  # Create folds
+  folds = createFolds(unique(data$id), 3)
+  n = 1
+  rmse_train = NULL
+  rmse_test = NULL
+  
+  for(i in folds) {
+    #select data
+    dtraint = subset(data, !id %in% i)
+    dtestt = subset(data, id %in% i)
+    #train model
+    model2 = glmer(model, dtraint, family = gaussian(link = "log"))
+    
+    #test the model, traindata
+    rmse_train[n] = Metrics::rmse(dtraint$Duration, fitted(model2))
+    # testtada
+    rmse[n] = Metrics::rmse(dtestt$Duration, predict(model2, dtestt, allow.new.levels=T))
+    
+    #save the performance -- add to list c()
+    n = n+1
+  }
+  
+  # Add results to a row to add to dataframe
+  add_row = data.frame(model = model,
+                       rmse = mean(rmse))
+  
+  # Bind final dataframe with all results
+  BestModel = rbind(BestModel, add_row)
+  }
+
+
+data = droplevels(data)
+length(unique(data$ParticipantID))
+
+### The model that doesn't work ###
+model = glmer(Duration ~ SearchType*Fixation +  (1 + SearchType*Fixation|ParticipantID), data, 
+           family = gaussian(link = "log"))
+
+summary(model)
+
+model = lmer(TimeStamp ~ SearchType + Trial + (1+SearchType*Trial|ParticipantID), visual)
+summary(model)
+
+# Predict duration of fixation from searchtype (count search, we'd expect count to )
+model = lmer(Duration ~ SearchType + Trial + (1+SearchType*Trial|ParticipantID), Fix)
+summary(model)
+
+model1 = lmer(Duration ~ SearchType * Trial + (1+SearchType*Trial|ParticipantID), Fix)
+summary(model1)
+
+model2 = glmer(Duration ~ SearchType + Trial + (1+SearchType*Trial|ParticipantID), Fix, family = "gaussian"(link='log'))
+summary(model2)
+
+
+```
+
+```{r}
+# SOCIAL ENGAGEMENT MODELS
+data = sFix
+
+m1 = glmer(PupilSize ~ Ostension*Directionality*Trial + (1 + Ostension*Directionality*Trial|ParticipantID), data, 
+           
+           
+           family = gaussian(link = "log"), 
+                control = glmerControl(optimizer = "nloptwrap", calc.derivs = FALSE))
+
+```
+
