@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 ---
 title: "Eye tracking data analysis"
 author: "Maris Sala"
@@ -14,17 +15,17 @@ Visual search and Social engagement condition analysis
 Set things up
 ```{r cars}
 # Load packages
-pacman::p_load(readr,groupdata2,ggplot2,tidyverse,caret,cowplot)
+pacman::p_load(readr,groupdata2,ggplot2,tidyverse,caret,stats)
 pacman::p_load(Metrics,readr,groupdata2,ggplot2,tidyverse,lmerTest, caret,MuMIn,car,dplyr)
 
 # Data with Visual search and social engagement
 Fix = read.csv('../2018Eyetracking/FixationsV2.csv')
 Sac = read.csv('../2018Eyetracking/SaccadesV2.csv')
-#Samples = read.csv('../2018Eyetracking/SamplesV2.csv')
+Samples = read.csv('../2018Eyetracking/SamplesV2.csv')
 
 #Scale everything
-preObj <- preProcess(Fix[, c(-1, -3, -4,-5, -7, -8)], method=c("center", "scale"))
-Fix <- predict(preObj, Fix)
+#preObj <- preProcess(Fix[, c(-1, -3, -4,-5, -7, -8)], method=c("center", "scale"))
+#Fix <- predict(preObj, Fix)
 
 # Make one dataframe for SocialEngagement and one for VisualSearch
 sFix = subset(Fix, Task == "SocialEngagement", na.rm=T)
@@ -66,43 +67,49 @@ sSamples = na.omit(sSamples)
 
 Plot some data to see what we are up against
 ```{r}
-# Social first
+# General plots
+#Visual
+ggplot(vFix, aes(Duration, color = ParticipantID))+geom_density()+facet_wrap(~Task) #Not normally distributed, long tailed.
+ggplot(vSac, aes(Amplitude, color = ParticipantID))+geom_density()+facet_wrap(~Task)
 
-# Try changing timestamp into numbers
-ggplot(social, aes(Ostension, PupilSize)) +
-  geom_boxplot() +
-  facet_grid(.~ Directionality)
+# Social
+ggplot(sFix, aes(PupilSize, color = ParticipantID))+geom_density()+facet_wrap(~Task)
 
-# What about gender
-ggplot(sFix, aes(ParticipantGender, PupilSize)) +
-  geom_boxplot() +
-  facet_grid(.~ ActorGender)
-## female pupils seem to be larger anyways in the data
+ggplot(sFix, aes(PupilSize, color = Directionality))+geom_density()+facet_wrap(~Ostension)
 
-# One participant has a longer trialtime for one condition
-max(subset(social, ParticipantID == "2_1_f")$TrialTime) ## max trial time is 6405
-# Same plot as before but set max for x axis as 6405
-ggplot(social, aes(TrialTime, PupilSize, color = ParticipantID)) +
-  geom_smooth() +
-  xlim(0,6450) +
-  facet_grid(.~ ActorGender)
-
-# Now plot the same for generally
-ggplot(social, aes(TrialTime, PupilSize, color = ParticipantGender)) +
-  geom_smooth() +
-  xlim(0,6450) +
-  #facet_grid(.~ ActorGender) +
-  facet_wrap(~ Ostension + Directionality)
-
-# Now based on the actor's gender + ostension
-ggplot(social, aes(TrialTime, PupilSize, color = ParticipantGender)) +
-  geom_smooth() +
-  xlim(0,6450) +
-  facet_wrap(~ ActorGender + Ostension)
-## seems like 
+# # Try changing timestamp into numbers
+# ggplot(social, aes(Ostension, PupilSize)) +
+#   geom_boxplot() +
+#   facet_grid(.~ Directionality)
+# 
+# # What about gender
+# ggplot(sFix, aes(ParticipantGender, PupilSize)) +
+#   geom_boxplot() +
+#   facet_grid(.~ ActorGender)
+# ## female pupils seem to be larger anyways in the data
+# 
+# # One participant has a longer trialtime for one condition
+# max(subset(social, ParticipantID == "2_1_f")$TrialTime) ## max trial time is 6405
+# # Same plot as before but set max for x axis as 6405
+# ggplot(social, aes(TrialTime, PupilSize, color = ParticipantID)) +
+#   geom_smooth() +
+#   xlim(0,6450) +
+#   facet_grid(.~ ActorGender)
+# 
+# # Now plot the same for generally
+# ggplot(social, aes(TrialTime, PupilSize, color = ParticipantGender)) +
+#   geom_smooth() +
+#   xlim(0,6450) +
+#   #facet_grid(.~ ActorGender) +
+#   facet_wrap(~ Ostension + Directionality)
+# 
+# # Now based on the actor's gender + ostension
+# ggplot(social, aes(TrialTime, PupilSize, color = ParticipantGender)) +
+#   geom_smooth() +
+#   xlim(0,6450) +
+#   facet_wrap(~ ActorGender + Ostension)
+# ## seems like 
 ```
-
-
 
 ```{r}
 # Same for visual search now!
@@ -266,29 +273,30 @@ scan_count
 Make the models via cross-validation
 ```{r}
 data = vFix
+data = droplevels(data)
 data$fold_id = data$ParticipantID
-data$id = as.numeric(data$fold_id)
-data$id = as.factor(data$id)
-data$id = as.character(data$id)
-data$id = as.numeric(data$id)
-#data$id = as.factor(data$id)
+data$id=as.character(data$ParticipantID)%>%as.factor()%>%as.numeric()
+data = select(data, c("Trial", "ParticipantID", "Fixation", "Duration", "SearchType", "id"))
 
 # Scale duration!
-data$Duration = scale(data$Duration)
+#data$Duration = scale(data$Duration)
 # And fixation
 data$Fixation = scale(data$Fixation)
-# Only select columns you need in the models
-#data$fold_id = as.factor(data$fold_id)
-data = subset(data, select = c(Trial, ParticipantID, Fixation, Duration, SearchType, fold_id, id))
-data = subset(data, id == "1" | id == "2")
+
+# Log transform
+data$Duration = log(data$Duration)
+data$Duration = scale(data$Duration)
+
+## Models
+model = lmer(Duration ~ SearchType*Fixation + (1 + Fixation + Trial|ParticipantID), data)
+summary(model)
 
 # List of all the models that will be tested
-goodmodels = list("Duration ~ SearchType*Fixation + Trial + (1+SearchType*Fixation*Trial|ParticipantID)")
-               #"Duration ~ SearchType*Saccade * Trial + (1+SearchType*Trial|ParticipantID)")
-               #"TimeStamp ~ SearchType + Trial + (1+SearchType*Trial|ParticipantID)")
-               #"Duration ~ SearchType + Trial + (1+SearchType*Trial|ParticipantID), family = gaussian(link=log)",
-               #"Duration ~ SearchType * Trial + (1+SearchType*Trial|ParticipantID), family = gaussian(link=log)"
-#)
+goodmodels = list("Duration ~ SearchType*Fixation + (1 + Fixation + Trial|ParticipantID)",
+                  "Duration ~ SearchType + Fixation + (1 + Fixation + Trial|ParticipantID)",
+                  "Duration ~ SearchType + (1 + SearchType + Trial|ParticipantID)",
+                  "Duration ~ SearchType + Trial + (1 + SearchType + Trial|ParticipantID)")
+
 # To save results in a dataframe
 BestModel = as.data.frame(NULL)
 
@@ -306,12 +314,12 @@ for (model in goodmodels){
     dtraint = subset(data, !id %in% i)
     dtestt = subset(data, id %in% i)
     #train model
-    model2 = glmer(model, dtraint, family = gaussian(link = "log"))
-    
+    model2 = lmer(model, dtraint)
+    print(model2)
     #test the model, traindata
     rmse_train[n] = Metrics::rmse(dtraint$Duration, fitted(model2))
     # testtada
-    rmse[n] = Metrics::rmse(dtestt$Duration, predict(model2, dtestt, allow.new.levels=T))
+    rmse_test[n] = Metrics::rmse(dtestt$Duration, predict(model2, dtestt, allow.new.levels=T))
     
     #save the performance -- add to list c()
     n = n+1
@@ -319,47 +327,178 @@ for (model in goodmodels){
   
   # Add results to a row to add to dataframe
   add_row = data.frame(model = model,
-                       rmse = mean(rmse))
+                       rmse = mean(rmse_test))
   
   # Bind final dataframe with all results
   BestModel = rbind(BestModel, add_row)
+}
+
+# Best model
+model = lmer(Duration ~ SearchType + Fixation + (1 + Fixation + Trial|ParticipantID), data)
+summary(model)
+
+### SACCADES ###
+
+data2 = vSac
+data2 = droplevels(data2)
+data2$fold_id = data2$ParticipantID
+data2$id=as.character(data2$ParticipantID)%>%as.factor()%>%as.numeric()
+data2 = select(data2, c("Trial", "ParticipantID", "Saccade", "Duration", "SearchType", "id", "Amplitude"))
+
+# Scale duration!
+#data$Duration = scale(data$Duration)
+# And fixation
+data2$Saccade = scale(data2$Saccade)
+
+# Log transform
+data2$Amplitude = log(data2$Amplitude)
+data2$Amplitude = scale(data2$Amplitude)
+
+## Models
+model = lmer(Amplitude ~ SearchType*Saccade + (1 + Saccade + Trial|ParticipantID), data2)
+summary(model)
+
+# List of all the models that will be tested
+goodmodels = list("Amplitude ~ SearchType*Saccade + (1 + Saccade + Trial|ParticipantID)",
+                  "Amplitude ~ SearchType + (1 + SearchType + Trial|ParticipantID)",
+                  "Amplitude ~ SearchType*Saccade + Trial + (1 + Saccade + Trial|ParticipantID)")
+
+# To save results in a dataframe
+BestModel2 = as.data.frame(NULL)
+
+# Loop for ALL MODELS
+for (model in goodmodels){
+  # Create folds
+  folds = createFolds(unique(data2$id), 3)
+  n = 1
+  rmse_train = NULL
+  rmse_test = NULL
+  
+  for(i in folds) {
+    #select data
+    dtraint = subset(data2, !id %in% i)
+    dtestt = subset(data2, id %in% i)
+    #train model
+    model2 = lmer(model, dtraint)
+    print(model2)
+    #test the model, traindata
+    rmse_train[n] = Metrics::rmse(dtraint$Duration, fitted(model2))
+    # testtada
+    rmse_test[n] = Metrics::rmse(dtestt$Duration, predict(model2, dtestt, allow.new.levels=T))
+    
+    #save the performance -- add to list c()
+    n = n+1
+  }
+  
+  # Add results to a row to add to dataframe
+  add_row = data.frame(model = model,
+                       rmse = mean(rmse_test))
+  
+  # Bind final dataframe with all results
+  BestModel2 = rbind(BestModel2, add_row)
   }
 
-
-data = droplevels(data)
-length(unique(data$ParticipantID))
-
-### The model that doesn't work ###
-model = glmer(Duration ~ SearchType*Fixation +  (1 + SearchType*Fixation|ParticipantID), data, 
-           family = gaussian(link = "log"))
-
+## Best model
+model = lmer(Amplitude ~ SearchType*Saccade + Trial + (1 + SearchType + Trial|ParticipantID), data2)
 summary(model)
-
-model = lmer(TimeStamp ~ SearchType + Trial + (1+SearchType*Trial|ParticipantID), visual)
-summary(model)
-
-# Predict duration of fixation from searchtype (count search, we'd expect count to )
-model = lmer(Duration ~ SearchType + Trial + (1+SearchType*Trial|ParticipantID), Fix)
-summary(model)
-
-model1 = lmer(Duration ~ SearchType * Trial + (1+SearchType*Trial|ParticipantID), Fix)
-summary(model1)
-
-model2 = glmer(Duration ~ SearchType + Trial + (1+SearchType*Trial|ParticipantID), Fix, family = "gaussian"(link='log'))
-summary(model2)
-
 
 ```
 
 ```{r}
-# SOCIAL ENGAGEMENT MODELS
+#Preparing and folding data 
+#Subsetting, only fixations in the social engagement task
 data = sFix
 
-m1 = glmer(PupilSize ~ Ostension*Directionality*Trial + (1 + Ostension*Directionality*Trial|ParticipantID), data, 
-           
-           
-           family = gaussian(link = "log"), 
-                control = glmerControl(optimizer = "nloptwrap", calc.derivs = FALSE))
+#Make participant numeric
+data$id=as.character(data$ParticipantID)%>%as.factor()%>%as.numeric() #make P_ID numeric
+
+#Make a participant variable that's a factor
+data$ParticipantID = as.factor(data$ParticipantID)
+data$Directionality = as.factor(data$Directionality)
+data$Ostension = as.factor(data$Ostension)
+
+#Scale pupil size and trial time
+data$PupilSize = log(data$PupilSize)
+data$PupilSize = scale(data$PupilSize)
+
+data = droplevels(data)
+data = na.omit(data)
+
+# SOCIAL ENGAGEMENT MODELS
+
+# data = droplevels(data)
+# data$fold_id = data$ParticipantID
+# data$id=as.character(data$ParticipantID)%>%as.factor()%>%as.numeric()
+# data = select(data, c("Trial", "ParticipantID", "PupilSize", "ParticipantGender", "ActorGender", "Directionality", "Ostension", "id"))
+# 
+# #data$PupilSize = log(data$PupilSize)
+# data$PupilSize = scale(data$PupilSize)
+
+#models
+m1 = lmer(PupilSize ~ Ostension*Directionality + Trial + (1 + Ostension*Directionality + Trial|ParticipantID), data)
+summary(m1)
+
+# List of all the models that will be tested
+goodmodels = list(#"PupilSize ~ Ostension*Directionality + ActorGender*ParticipantGender + (1 + Ostension*Directionality|ParticipantID)",
+                  "PupilSize ~ Ostension*Directionality + Trial + (1 + Ostension*Directionality+Trial|ParticipantID)",
+                  #"PupilSize ~ Ostension*Directionality + (1 + ActorGender*ParticipantGender|ParticipantID)",
+                  "PupilSize ~ Ostension + Directionality + Trial + (1 + Ostension + Directionality + Trial|ParticipantID)",
+                  #"PupilSize ~ ActorGender*ParticipantGender*Ostension + (1 + Ostension*Directionality|ParticipantID)",
+                  #"PupilSize ~ ActorGender*ParticipantGender*Directionality + (1 + Ostension*Directionality|ParticipantID)",
+                  #"PupilSize ~ Ostension*Directionality + Trial + (1 + Ostension*Directionality|ParticipantID)",
+                  "PupilSize ~ Ostension + Trial + (1 + Ostension+Trial|ParticipantID)",
+                  "PupilSize ~ Directionality + Trial + (1 + Directionality+Trial|ParticipantID)")
+
+# To save results in a dataframe
+BestModel3 = as.data.frame(NULL)
+
+# Loop for ALL MODELS
+for (model in goodmodels){
+  
+  # Create folds
+  #numfolds = 3
+  #d = data
+  #d = fold(data, numfolds, id_col = "ParticipantID", cat_col = "ParticipantGender", method = 'n_dist')
+  
+  folds = createFolds(unique(data$id), 3)
+  n = 1
+  rmse_train = NULL
+  rmse_test = NULL
+  
+  for(i in folds) {
+    #select data
+    dtraint = subset(data, !id %in% i)
+    dtestt = subset(data, id %in% i)
+    dtraint = droplevels(dtraint)
+    dtestt = droplevels(dtestt)
+    
+    #dtraint = subset(data, .folds != fold)
+    #dtestt = subset(data, .folds == fold)
+    
+    #train model
+    model2 = lmer(model, dtraint)
+    print(model2)
+    #test the model, traindata
+    rmse_train[n] = Metrics::rmse(dtraint$PupilSize, fitted(model2))
+    # testtada
+    rmse_test[n] = Metrics::rmse(dtestt$PupilSize, predict(model2, dtestt, allow.new.levels=T))
+    
+    #save the performance -- add to list c()
+    n = n+1
+  }
+  
+  # Add results to a row to add to dataframe
+  add_row = data.frame(model = model,
+                       rmse = mean(rmse_test))
+  
+  # Bind final dataframe with all results
+  BestModel3 = rbind(BestModel3, add_row)
+}
+
+# Best model
+model = lmer(PupilSize ~ Directionality + Trial + (1 + Directionality|ParticipantID), data)
+summary(model)
 
 ```
 
+>>>>>>> ca0d38a80b1f37b42330d13e9b4588e8f9b6fb1a

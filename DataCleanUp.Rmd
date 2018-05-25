@@ -1,0 +1,347 @@
+---
+title: "EyetrackingDataCleanUp"
+author: "RF"
+date: "2/1/2018"
+output: html_document
+---
+
+# Here we load libraries and data (from 2018)
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+pacman::p_load(readr,groupdata2,ggplot2,tidyverse)
+
+# Both experiments are in the same files
+setwd('~/Dropbox (Personal)/My courses/2018 - Eye tracking')
+Samples=read_delim('eyetracking_2018_samples.txt',delim='\t')
+Fixations=read_delim('eyetracking_2018_fixations.txt',delim='\t')
+Saccades=read_delim('eyetracking_2018_saccades.txt',delim='\t')
+```
+
+# Here we clean up the data
+- We only select useful columns
+- We rename the columns in more concise and meaningful ways
+- We add the task (Visual Search vs. Social Engagement)
+- We add time as counted from the start of each trial
+- We check whether the trials are of the length we expect (6s for videos, 10s/20s/40s for images)
+
+```{r}
+
+AddTask <- function(df){
+  for (s in unique(df$ParticipantID)){
+    if (max(df$Trial[df$ParticipantID==s])==8){
+      df$Task[df$ParticipantID==s]='SocialEngagement'
+    } else {
+      df$Task[df$ParticipantID==s]='VisualSearch'
+    }
+  }
+  df$ParticipantGender[grepl("f|F",df$ParticipantID)]='female'
+  df$ParticipantGender[grepl("m|M",df$ParticipantID)]='male'
+  
+  df$SearchOrder[grepl("f1|F1",df$ParticipantID)]=1
+  df$SearchOrder[grepl("m1|M1",df$ParticipantID)]=1
+  df$SearchOrder[grepl("f2|F2",df$ParticipantID)]=2
+  df$SearchOrder[grepl("m2|M2",df$ParticipantID)]=2
+  
+  return(df)
+}
+
+Fixations = Fixations %>% 
+  select(
+    ParticipantID=RECORDING_SESSION_LABEL,
+    Trial=TRIAL_INDEX,
+    Fixation=CURRENT_FIX_INDEX,
+    Duration=CURRENT_FIX_DURATION,
+    PupilSize=CURRENT_FIX_PUPIL,
+    PositionX=CURRENT_FIX_X,
+    PositionY=CURRENT_FIX_Y,
+    StartTime=CURRENT_FIX_START,
+    EndTime=CURRENT_FIX_END)
+
+
+Fixations=AddTask(Fixations)
+
+
+Saccades = Saccades %>%
+  select(
+    ParticipantID=RECORDING_SESSION_LABEL,
+    Trial=TRIAL_INDEX,
+    Saccade=CURRENT_SAC_INDEX,
+    Direction=CURRENT_SAC_DIRECTION,
+    Amplitude=CURRENT_SAC_AMPLITUDE,
+    Duration=CURRENT_SAC_DURATION,
+    PeakVelocity=CURRENT_SAC_PEAK_VELOCITY,
+    MeanVelocity=CURRENT_SAC_AVG_VELOCITY,
+    Blink=CURRENT_SAC_CONTAINS_BLINK,
+    StartTime=CURRENT_SAC_START_TIME,
+    EndTime=CURRENT_SAC_END_TIME,
+    StartX=CURRENT_SAC_START_X,
+    StartY=CURRENT_SAC_START_Y,
+    EndX=CURRENT_SAC_END_X,
+    EndY=CURRENT_SAC_END_Y
+  )
+Saccades$Amplitude=as.numeric(Saccades$Amplitude)
+Saccades$MeanVelocity=as.numeric(Saccades$MeanVelocity)
+Saccades$EndX=as.numeric(Saccades$EndX)
+Saccades$EndY=as.numeric(Saccades$EndY)
+
+Saccades=AddTask(Saccades)
+
+Samples = Samples %>%
+  select(
+    ParticipantID=RECORDING_SESSION_LABEL,
+    Trial=TRIAL_INDEX,
+    TimeStamp=TIMESTAMP,
+    PositionX=RIGHT_GAZE_X,
+    PositionY=RIGHT_GAZE_Y,
+    PupilSize=RIGHT_PUPIL_SIZE,
+    Saccade=RIGHT_IN_SACCADE,
+    Blink=RIGHT_IN_BLINK,
+    MeanVelocityX=RIGHT_VELOCITY_X,
+    MeanVelocityY=RIGHT_VELOCITY_Y,
+    MeanAccellerationX=RIGHT_ACCELLERATION_X,
+    MeanAccellerationY=RIGHT_ACCELLERATION_Y
+  )
+
+Samples$MeanVelocityY=as.numeric(Samples$MeanVelocityY)
+Samples$MeanVelocityX=as.numeric(Samples$MeanVelocityX)
+Samples$MeanAccellerationY=as.numeric(Samples$MeanAccellerationY)
+Samples$MeanAccellerationX=as.numeric(Samples$MeanAccellerationX)
+
+Samples=AddTask(Samples)
+
+# Add time from trial start
+
+Samples <- Samples %>%
+  group_by(ParticipantID,Trial) %>%
+  mutate(TrialTime = TimeStamp - min(TimeStamp))
+
+## Double check trial timing. It's all in place!
+X <- Samples %>%
+   group_by(ParticipantID,Trial) %>%
+   dplyr::summarize(LengthSeconds = max(TrialTime)/1000)
+print(X)
+```
+
+## Import fixation number and saccade number from processed data to samples
+Since the samples do not exclude artifacts and do not contain fixation and saccade number, we import this data from Fixations and Saccades datasets
+
+```{r}
+
+for (t in seq(nrow(Fixations))){
+  StartTime=Fixations$StartTime[t]
+  EndTime=Fixations$EndTime[t]
+  ID=Fixations$ParticipantID[t]
+  Trial=Fixations$Trial[t]
+  FixN=Fixations$Fixation[t]
+  Samples$Fixation[Samples$TrialTime >= StartTime  & Samples$TrialTime <= EndTime & Samples$ParticipantID==ID & Samples$Trial==Trial]=FixN
+}
+
+
+for (t in seq(nrow(Saccades))){
+  StartTime=Saccades$StartTime[t]
+  EndTime=Saccades$EndTime[t]
+  ID=Saccades$ParticipantID[t]
+  Trial=Saccades$Trial[t]
+  SacN=Saccades$Fixation[t]
+  Samples$SaccadeN[Samples$TrialTime >= StartTime  & Samples$TrialTime <= EndTime & Samples$ParticipantID==ID & Samples$Trial==Trial]=SacN
+}
+
+write_csv(Saccades,"SaccadesV1.csv")
+write_csv(Fixations,"FixationsV1.csv")
+write_csv(Samples,"SamplesV1.csv")
+
+```
+
+## Merge with data about experimental conditions
+We merge the data with the experimental logs.
+
+```{r}
+
+Fixations=read_csv('FixationsV1.csv')
+Saccades=read_csv('SaccadesV1.csv')
+Samples=read_csv('SamplesV1.csv')
+
+## THEN GO TO THE LOG FILES AND MATCH the data from the logfiles to the samples/fixations/saccades (to have conditions, and so forth)
+## ADD GROUP PARTICIPANT AND GENDER TO THE TABLES
+
+Order1<- read_tsv('ForagingOrder1.txt',col_names = F)
+Order1$Trial=1:10
+Order1$SearchOrder=1
+Order1$SearchType=c("Search","Search","Search","Search","Search","Count","Count","Count","Count","Count")
+Order2<- read_tsv('ForagingOrder1.txt',col_names = F)
+Order2$Trial=1:10
+Order2$SearchOrder=2
+Order2$SearchType=c("Count","Count","Count","Count","Count","Search","Search","Search","Search","Search")
+Order=rbind(Order1,Order2)
+Order=Order %>% rename(Stimulus=X1)
+
+Saccades=merge(Saccades,Order,all=T)
+Fixations=merge(Fixations,Order,all=T)
+Samples=merge(Samples,Order,all=T)
+
+setwd('PupilsLogs')
+fileList<-list.files(".",pattern="csv")
+logs=NULL
+for (f in fileList){
+  d<-read_csv(f)
+  d=d %>% rename(Trial=X1,ParticipantID=subject)
+  d$Trial=d$Trial+1
+  for (n in seq(nrow(d))){
+    x<-str_split(d$video[n],"_")[[1]]
+    d$ActorGender[n]=x[1]
+    d$Directionality[n]=x[4]
+    d$Ostension[n]=x[5]
+  }
+  if (exists('logs')){logs=rbind(logs,d)} else {logs=d}
+}
+
+Saccades=merge(Saccades,logs,all=T)
+Saccades$Stimulus[Saccades$Task=='SocialEngagement']=Saccades$video[Saccades$Task=='SocialEngagement']
+Saccades$video=NULL
+Fixations=merge(Fixations,logs,all=T)
+Fixations=Fixations[!is.na(Fixations$Task),]
+Fixations$Stimulus[Fixations$Task=='SocialEngagement']=Fixations$video[Fixations$Task=='SocialEngagement']
+Fixations$video=NULL
+Samples=merge(Samples,logs,all=T)
+Samples$Stimulus[Samples$Task=='SocialEngagement']=Samples$video[Samples$Task=='SocialEngagement']
+Samples$video=NULL
+setwd('..')
+write_csv(Saccades,"SaccadesV2.csv")
+write_csv(Fixations,"FixationsV2.csv")
+write_csv(Samples,"SamplesV2.csv")
+```
+
+# We now integrate the datasets with all the available data from 2017
+
+```{r}
+
+Fixations=read_csv('FixationsV2.csv')
+Saccades=read_csv('SaccadesV2.csv')
+Samples=read_csv('SamplesV2.csv')
+
+ForagingFixations <- read_csv("~/Dropbox (Personal)/My courses/old/2017 - EyeTracking/Data/FORAGING_FixationsClean.csv")
+ForagingFixations$Task='VisualSearch'
+ForagingSaccades <- read_csv("~/Dropbox (Personal)/My courses/old/2017 - EyeTracking/Data/FORAGING_SaccadesClean.csv")
+ForagingSaccades$Task='VisualSearch'
+PupilsFixations <- read_csv("~/Dropbox (Personal)/My courses/old/2017 - EyeTracking/Data/PUPIL_FixationsClean.csv")
+PupilsFixations$Task='SocialEngagement'
+PupilsSamples <- read_csv("~/Dropbox (Personal)/My courses/old/2017 - EyeTracking/Data/PUPIL_SamplesClean.csv")
+PupilsSamples$Task='SocialEngagement'
+
+
+ForagingFixations <- ForagingFixations %>% rename(
+  SearchType=Condition,
+  SearchOrder=Order,
+  Duration=Duration,
+  StartTime=CURRENT_FIX_START,
+  EndTime=CURRENT_FIX_END,
+  PositionX=CURRENT_FIX_X,
+  PositionY=CURRENT_FIX_Y
+)
+
+ForagingFixations[,c('PupilSize','ActorGender','Directionality','Ostension','ParticipantGender')]=NA
+
+PupilsFixations <- PupilsFixations %>% rename(
+  ParticipantID=participant_id,
+  Trial=trial,
+  Fixation=current_fix_index,
+  Duration=current_fix_duration,
+  StartTime=current_fix_start,
+  EndTime=current_fix_end,
+  PositionX=current_fix_x,
+  PositionY=current_fix_y,
+  Task=Task,
+  PupilSize=current_fix_pupil,
+  Stimulus=video,
+  ActorGender=gender,
+  Directionality=directed,
+  Ostension=ostension
+)
+
+PupilsFixations[,c('Condition','SearchType','SearchOrder','ParticipantGender')]=NA
+
+Fixations=Fixations[,c("ParticipantID","Trial","Fixation","Duration","PupilSize","PositionX","PositionY","StartTime","EndTime","Task","SearchType","SearchOrder","Stimulus","Directionality","Ostension","ActorGender","ParticipantGender")]
+
+ForagingFixations=ForagingFixations[,c("ParticipantID","Trial","Fixation","Duration","PupilSize","PositionX","PositionY","StartTime","EndTime","Task","SearchType","SearchOrder","Stimulus","Directionality","Ostension","ActorGender","ParticipantGender")]
+
+PupilsFixations=PupilsFixations[,c("ParticipantID","Trial","Fixation","Duration","PupilSize","PositionX","PositionY","StartTime","EndTime","Task","SearchType","SearchOrder","Stimulus","Directionality","Ostension","ActorGender","ParticipantGender")]
+
+
+Fixations2017=rbind(ForagingFixations,PupilsFixations)
+Fixations2017$Year='2017'
+Fixations$Year='2018'
+Fixations=rbind(Fixations,Fixations2017)
+
+ForagingSaccades <- ForagingSaccades %>% rename(
+  SearchType=Condition,
+  SearchOrder=Order,
+  Direction=CURRENT_SAC_DIRECTION,
+  Amplitude=CURRENT_SAC_AMPLITUDE,
+  PeakVelocity=CURRENT_SAC_PEAK_VELOCITY,
+  MeanVelocity=CURRENT_SAC_AVG_VELOCITY,
+  Blink=CURRENT_SAC_CONTAINS_BLINK,
+  StartTime=CURRENT_SAC_START_TIME,
+  EndTime=CURRENT_SAC_END_TIME,
+  StartX=CURRENT_SAC_START_X,
+  StartY=CURRENT_SAC_START_Y,
+  EndX=CURRENT_SAC_END_X,
+  EndY=CURRENT_SAC_END_Y
+)
+
+ForagingSaccades[,c("ParticipantGender","Stimulus","ActorGender","Directionality","Ostension" )]=NA
+ForagingSaccades$Year='2017'
+Saccades=Saccades[,c("ParticipantID","Trial","Saccade","Direction","Amplitude","PeakVelocity","MeanVelocity","StartTime","EndTime","Duration", "StartX", "StartY","EndX","EndY","Blink","SearchType","SearchOrder","Task","ParticipantGender","Stimulus", "ActorGender" , "Directionality","Ostension")]
+Saccades$Year='2018'  
+Saccades=rbind(Saccades,ForagingSaccades)
+
+PupilsSamples <- PupilsSamples %>% rename(
+  ParticipantID=participant_id,
+  Trial=trial,
+  PupilSize=right_pupil_size,
+  Fixation=fix_nr,
+  Saccade=right_in_saccade,
+  Blink=right_in_blink,
+  ActorGender=gender,
+  Directionality=directed,
+  Ostension=ostension,
+  Stimulus=video,
+  TrialTime=task_time,
+  Task=Task
+)
+
+PupilsSamples[,c("SearchOrder","TimeStamp","PositionX","PositionY","MeanVelocityX","MeanVelocityY","MeanAccellerationX","MeanAccellerationY","ParticipantGender","SearchType")]=NA
+PupilsSamples$fixation=NULL
+
+Samples=Samples[,colnames(PupilsSamples)] 
+PupilsSamples$Year='2017'
+Samples$Year='2018'
+Samples=rbind(Samples,PupilsSamples)
+
+Fixations$Ostension[Fixations$Ostension=='+o']='Ostensive'
+Fixations$Ostension[Fixations$Ostension=='-o']='Private'
+Samples$Ostension[Samples$Ostension=='+o']='Ostensive'
+Samples$Ostension[Samples$Ostension=='-o']='Private'
+
+Fixations$Directionality[Fixations$Directionality=='div']='Towards3rd'
+Fixations$Directionality[Fixations$Directionality=='dir']='TowardsYou'
+Samples$Directionality[Samples$Directionality=='div']='Towards3rd'
+Samples$Directionality[Samples$Directionality=='dir']='TowardsYou'
+
+Fixations$ActorGender[Fixations$ActorGender=='f']='Female'
+Fixations$ActorGender[Fixations$ActorGender=='m']='Male'
+Samples$ActorGender[Samples$ActorGender=='f']='Female'
+Samples$ActorGender[Samples$ActorGender=='m']='Male'
+
+Fixations$SearchOrder[Fixations$SearchOrder=='First']='1'
+Fixations$SearchOrder[Fixations$SearchOrder=='Second']='2'
+Saccades$SearchOrder[Saccades$SearchOrder=='First']='1'
+Saccades$SearchOrder[Saccades$SearchOrder=='Second']='2'
+
+write_csv(Saccades,"SaccadesV3.csv")
+write_csv(Fixations,"FixationsV3.csv")
+write_csv(Samples,"SamplesV3.csv")
+
+```
+
